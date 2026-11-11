@@ -5,3 +5,7 @@ obj/
 *.suo
 packages/
 *.db
+
+# Nhat ky Server (bang chung nop bai dat thu cong vao docs/)
+logs/
+*.log

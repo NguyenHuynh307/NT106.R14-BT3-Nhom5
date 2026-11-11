@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Thư viện dùng chung cho Client và Server (Mục III.9: định nghĩa thông điệp nằm ở đây).
+       Hoàng Anh (Bước 2.1, 2.2) đặt mã lệnh, mã lỗi, lớp thông điệp và hàm đóng khung vào dự án này. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NT106.BT3.Shared</RootNamespace>
+    <AssemblyName>Shared</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
