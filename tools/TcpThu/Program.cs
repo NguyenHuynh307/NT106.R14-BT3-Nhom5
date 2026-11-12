@@ -30,8 +30,20 @@ if (args.Contains("--giu"))
 if (args.Contains("--rst"))
 {
     using var c = await NoiAsync();
-    c.Client.LingerState = new LingerOption(true, 0);   // đóng bằng RST thay vì FIN
-    Console.WriteLine("Đã nối. Đóng đột ngột (RST). Xem log Server: dòng '- ... rời đi: mất kết nối đột ngột'.");
+    using var luong = c.GetStream();
+    using var doc = new StreamReader(
+        luong, new UTF8Encoding(false), leaveOpen: true);
+
+    await luong.WriteAsync(Encoding.UTF8.GetBytes("RST_TEST\n"));
+
+    string? phanHoi = await DocDongAsync(doc);
+    Kiem(phanHoi == "ECHO:RST_TEST",
+        $"Phản hồi không đúng: '{phanHoi}'");
+
+    c.Client.LingerState = new LingerOption(true, 0);
+    c.Client.Close(0);
+
+    Console.WriteLine("Đã nhận phản hồi và đóng socket với Linger=0.");
     return 0;
 }
 
