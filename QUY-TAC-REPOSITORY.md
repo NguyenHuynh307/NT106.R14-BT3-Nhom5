@@ -1,104 +1,57 @@
 # Quy tắc làm việc với Repository
 
-Tài liệu này quy định cách các thành viên làm việc chung trên GitHub cho **NT106.R14-BT3-Nhom5**.
+## 1. Nguyên tắc
 
-## 1. Nguyên tắc chung
+- Không push trực tiếp lên `main`; mọi thay đổi vào `main` qua Pull Request (PR).
+- Mỗi người làm trên nhánh riêng, không sửa phần việc của người khác khi chưa trao đổi.
+- Không `git push --force`.
+- Mỗi thành viên có ít nhất một commit.
 
-- `main` là nhánh tích hợp ổn định. Không commit hoặc push trực tiếp lên `main`.
-- Mỗi thành viên làm việc trên branch riêng, chỉ đưa thay đổi vào `main` thông qua Pull Request (PR).
-- Trước khi sửa code, phải đồng bộ `main` mới nhất.
-- Không ghi đè công việc của thành viên khác, không force-push lên `main`.
-- Mỗi thành viên cần có ít nhất một commit được ghi nhận trong lịch sử bài tập.
+## 2. Nhánh
 
-## 2. Quy ước đặt tên branch
-
-Dùng chữ thường, không dấu, từ cách nhau bằng dấu gạch ngang:
+Tên chữ thường, không dấu, nối bằng dấu gạch ngang:
 
 ```text
-feature/<github-username>/<short-description>
-fix/<github-username>/<short-description>
-docs/<github-username>/<short-description>
+feature/<ten-chuc-nang>    docs/<ten-tai-lieu>    fix/<ten-loi>
 ```
 
-Ví dụ:
-
-```text
-feature/nguyenhuynh307/tcp-client
-feature/phu529/user-repository
-fix/liamz07/login-validation
-docs/hoanganh/protocol-specification
-```
-
-Không dùng branch tên chung chung như `test`, `new`, `update` hoặc `final`.
-
-## 3. Bắt đầu một công việc
-
-Mở CMD/PowerShell tại thư mục repository:
+Bắt đầu một việc:
 
 ```cmd
 git switch main
 git pull --ff-only origin main
-git switch -c feature/<github-username>/<short-description>
+git switch -c feature/<ten-chuc-nang>
 ```
 
-Thay phần trong dấu `<...>` bằng username và nội dung công việc thực tế.
+## 3. Commit
 
-## 4. Commit
-
-Commit nhỏ, tập trung vào một mục đích và dùng tiền tố thống nhất:
-
-| Tiền tố | Sử dụng |
-|---|---|
-| `feat:` | Thêm chức năng |
-| `fix:` | Sửa lỗi |
-| `refactor:` | Tái cấu trúc, không đổi hành vi mong muốn |
-| `docs:` | Tài liệu |
-| `test:` | Kiểm thử |
-| `chore:` | Cấu hình, công việc bảo trì |
-
-Ví dụ:
+Commit nhỏ, bắt đầu bằng tiền tố `feat:`, `fix:`, `refactor:`, `docs:`, `test:` hoặc `chore:`.
 
 ```cmd
-git add .
-git commit -m "feat: add async TCP client connection"
+git commit -m "feat: thêm kết nối TCP bất đồng bộ cho Client"
 git push -u origin HEAD
 ```
 
-Không đưa mật khẩu, token, connection string thật, file database cá nhân, log chứa dữ liệu nhạy cảm hoặc thư mục build lên Git.
+Không đưa lên Git: mật khẩu, token, chuỗi kết nối thật, file database, `bin/`, `obj/`.
 
-## 5. Pull Request
+## 4. Pull Request
 
-- Tạo PR từ branch công việc vào `main`.
-- Tiêu đề PR mô tả đúng phần thay đổi, có thể dùng cùng tiền tố commit.
-- Mô tả: mục đích, file/chức năng đã sửa, cách chạy và kết quả kiểm thử.
-- Nêu rõ phần chưa hoàn thành hoặc giới hạn đã biết; không ghi “đã xong” nếu chưa kiểm tra.
-- Nhóm trưởng hoặc thành viên được phân công review trước khi merge.
-- Không tự merge PR của mình khi chưa có review theo thống nhất nhóm.
+- Tiêu đề ngắn, dùng cùng tiền tố commit.
+- Mô tả: làm gì, cách chạy, kết quả kiểm thử, phần chưa xong.
+- Phải có người khác review trước khi merge; không tự merge PR của mình.
+- Có conflict mà chưa hiểu thì dừng lại, hỏi người sở hữu phần code đó.
 
-## 6. Đồng bộ và xử lý xung đột
+## 5. Quy tắc code C#/.NET
 
-Trước khi mở PR, đồng bộ `main` mới nhất vào branch công việc. Nếu có conflict:
+- Đặt tên có nghĩa, không để `Form1`, `button1`, `textBox1`.
+- Chỉ Server nối SQL Server; mọi câu lệnh SQL dùng tham số.
+- Thao tác mạng dùng `async`/`await`.
+- Danh sách client dùng `ConcurrentDictionary`, không dùng `List<T>` thường.
+- Đổi giao thức thì cập nhật `docs/PROTOCOL.md`.
 
-1. Dừng thao tác merge/push nếu chưa hiểu thay đổi xung đột.
-2. Trao đổi với người sở hữu phần code liên quan.
-3. Giải quyết trên branch công việc, build/test lại.
-4. Không dùng `git push --force` để ghi đè lịch sử của người khác.
-
-## 7. Quy tắc riêng cho bài tập C#/.NET
-
-- Dùng C#/.NET cho Client, Server và Shared; thống nhất Target Framework trước khi tạo project.
-- Đặt tên class, method, property và file có ý nghĩa; không để tên mặc định như `Form1`, `button1`, `textBox1` khi đã biết chức năng.
-- Không đưa SQL access hoặc connection string vào Client. Chỉ Server được kết nối SQL Server.
-- Mọi truy vấn SQL dùng tham số.
-- Giữ các thao tác mạng bất đồng bộ bằng `async`/`await`; không chặn UI bằng thao tác mạng đồng bộ.
-- Không dùng `List<T>` không đồng bộ giữa các tác vụ để quản lý Client; cần collection thread-safe hoặc khóa phù hợp.
-- Khi sửa giao thức, cập nhật `docs/PROTOCOL.md` và bảo đảm Client, Server, Shared thống nhất.
-
-## 8. Trước khi gửi PR
+## 6. Trước khi gửi PR
 
 ```cmd
-git status -sb
 git diff --check
+dotnet build
 ```
-
-Tự build/test phần mình thay đổi; kiểm tra không có file thừa, secret, `bin/`, `obj/` hoặc dữ liệu cá nhân. Ghi kết quả thật vào PR.
