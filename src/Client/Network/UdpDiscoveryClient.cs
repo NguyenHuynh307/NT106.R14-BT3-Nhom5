@@ -1,159 +1,117 @@
-﻿using System.Net;
-using System.Net.NetworkInformation;
+using System.Net;
 using System.Net.Sockets;
+using NT106.BT3.Server.Logging;
 using Shared;
 
-namespace NT106.BT3.Client.Network;
+namespace NT106.BT3.Server.Network;
 
 /// <summary>
-/// Thông tin địa chỉ IP và cổng TCP của Server được tìm thấy trong mạng LAN.
+/// Dịch vụ lắng nghe gói UDP Broadcast từ Client trong mạng LAN (TC10)
+/// và phản hồi địa chỉ IP cùng cổng TCP của Server.
 /// </summary>
-public sealed record DiscoveredServerInfo(string IpAddress, int TcpPort);
-
-/// <summary>
-/// Bộ dò tìm Server tự động qua gói tin UDP Broadcast trong mạng LAN (TC10).
-/// </summary>
-public static class UdpDiscoveryClient
+internal sealed class UdpDiscoveryServer
 {
-    /// <summary>
-    /// Phát gói UDP quảng bá để tìm Server đang chạy trong mạng nội bộ.
-    /// Trả về thông tin (IpAddress, TcpPort) nếu tìm thấy, hoặc null nếu hết thời gian chờ.
-    /// </summary>
-    public static async Task<DiscoveredServerInfo?> DiscoverServerAsync(
-        int udpPort = ProtocolConstants.UdpDiscoveryPort,
-        int timeoutMs = 2000,
-        CancellationToken cancellationToken = default)
+    private readonly int _tcpPort;
+    private readonly int _udpPort;
+
+    public UdpDiscoveryServer(int tcpPort, int udpPort = ProtocolConstants.UdpDiscoveryPort)
     {
-        byte[] requestBytes = ProtocolConstants.MessageEncoding.GetBytes(ProtocolConstants.UdpDiscoveryRequest);
-        List<IPEndPoint> broadcastTargets = GetLanBroadcastEndpoints(udpPort);
+        _tcpPort = tcpPort;
+        _udpPort = udpPort;
+    }
 
-        using var udpClient = new UdpClient(new IPEndPoint(IPAddress.Any, 0));
-        udpClient.EnableBroadcast = true;
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        using var udpListener = new UdpClient();
+        try
+        {
+            udpListener.Client.Bind(new IPEndPoint(IPAddress.Any, _udpPort));
+            TatLoiConnReset(udpListener.Client);
+        }
+        catch (SocketException ex)
+        {
+            ServerLog.Ghi("LOI", $"Không mở được cổng UDP Discovery {_udpPort} ({ex.SocketErrorCode}). Server TCP vẫn hoạt động bình thường.");
+            return;
+        }
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(timeoutMs);
-
-        // Gửi gói dò tìm 2 nhịp (lúc bắt đầu và sau 700ms nếu chưa có phản hồi) để tránh rớt gói UDP
-        _ = SendProbesAsync(udpClient, requestBytes, broadcastTargets, timeoutCts.Token);
+        ServerLog.Ghi("UDP", $"Đang lắng nghe dò tìm LAN trên cổng UDP {_udpPort} (cổng TCP: {_tcpPort}).");
 
         try
         {
-            while (!timeoutCts.Token.IsCancellationRequested)
+            while (!cancellationToken.IsCancellationRequested)
             {
-                UdpReceiveResult result = await udpClient.ReceiveAsync(timeoutCts.Token);
-                string responseText = ProtocolConstants.MessageEncoding.GetString(result.Buffer).Trim();
+                UdpReceiveResult result = await udpListener.ReceiveAsync(cancellationToken);
+                string requestText = ProtocolConstants.MessageEncoding.GetString(result.Buffer).Trim();
 
-                string[] parts = responseText.Split(ProtocolConstants.FieldSeparator);
-                if (parts.Length == 2
-                    && string.Equals(parts[0], ProtocolConstants.UdpDiscoveryResponsePrefix, StringComparison.Ordinal)
-                    && int.TryParse(parts[1], out int tcpPort)
-                    && tcpPort >= 1024 && tcpPort <= 49151)
-                {
-                    IPAddress senderIp = result.RemoteEndPoint.Address.IsIPv4MappedToIPv6
-                        ? result.RemoteEndPoint.Address.MapToIPv4()
-                        : result.RemoteEndPoint.Address;
-
-                    return new DiscoveredServerInfo(senderIp.ToString(), tcpPort);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Hết thời gian chờ (timeout) hoặc người dùng hủy thao tác -> trả về null để nhập tay
-        }
-        catch (SocketException)
-        {
-            // Lỗi mạng cục bộ (ví dụ chưa bật Wi-Fi/LAN) -> trả về null an toàn, không lộ ngoại lệ
-        }
-
-        return null;
-    }
-
-    private static async Task SendProbesAsync(
-        UdpClient udpClient,
-        byte[] requestBytes,
-        List<IPEndPoint> targets,
-        CancellationToken token)
-    {
-        for (int attempt = 0; attempt < 2 && !token.IsCancellationRequested; attempt++)
-        {
-            foreach (IPEndPoint target in targets)
-            {
-                try
-                {
-                    await udpClient.SendAsync(requestBytes, target, token);
-                }
-                catch (SocketException)
-                {
-                    // Bỏ qua card mạng không gửi được broadcast, tiếp tục thử card mạng khác
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-            }
-
-            try
-            {
-                await Task.Delay(700, token);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Lấy danh sách địa chỉ Broadcast (255.255.255.255 + Broadcast của các card mạng LAN đang hoạt động)
-    /// để tránh gói tin đi nhầm sang card mạng ảo (VMware/VirtualBox/WSL).
-    /// </summary>
-    private static List<IPEndPoint> GetLanBroadcastEndpoints(int udpPort)
-    {
-        var endpoints = new List<IPEndPoint>
-        {
-            new(IPAddress.Broadcast, udpPort)
-        };
-
-        try
-        {
-            foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                if (ni.OperationalStatus != OperationalStatus.Up
-                    || ni.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                if (!string.Equals(requestText, ProtocolConstants.UdpDiscoveryRequest, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                foreach (UnicastIPAddressInformation unicast in ni.GetIPProperties().UnicastAddresses)
+                string? diaChiServer = LayDiaChiCucBo(result.RemoteEndPoint);
+                if (diaChiServer == null)
                 {
-                    if (unicast.Address.AddressFamily != AddressFamily.InterNetwork || unicast.IPv4Mask == null)
-                    {
-                        continue;
-                    }
+                    ServerLog.Ghi("LOI", $"Không xác định được địa chỉ để trả lời {result.RemoteEndPoint}.");
+                    continue;
+                }
 
-                    byte[] ipBytes = unicast.Address.GetAddressBytes();
-                    byte[] maskBytes = unicast.IPv4Mask.GetAddressBytes();
-                    byte[] broadcastBytes = new byte[4];
+                string responseText = $"{ProtocolConstants.UdpDiscoveryResponsePrefix}{ProtocolConstants.FieldSeparator}{diaChiServer}{ProtocolConstants.FieldSeparator}{_tcpPort}";
+                byte[] responseBytes = ProtocolConstants.MessageEncoding.GetBytes(responseText);
 
-                    for (int i = 0; i < 4; i++)
-                    {
-                        broadcastBytes[i] = (byte)(ipBytes[i] | ~maskBytes[i]);
-                    }
-
-                    var subnetBroadcast = new IPAddress(broadcastBytes);
-                    if (!endpoints.Any(ep => ep.Address.Equals(subnetBroadcast)))
-                    {
-                        endpoints.Add(new IPEndPoint(subnetBroadcast, udpPort));
-                    }
+                try
+                {
+                    await udpListener.SendAsync(responseBytes, result.RemoteEndPoint, cancellationToken);
+                    ServerLog.Ghi("UDP", $"Đã phản hồi dò tìm tới {result.RemoteEndPoint} -> {responseText}");
+                }
+                catch (SocketException ex)
+                {
+                    // Một Client lỗi không được làm dừng dịch vụ dò tìm
+                    ServerLog.Ghi("LOI", $"Không gửi được phản hồi UDP tới {result.RemoteEndPoint} ({ex.SocketErrorCode}).");
                 }
             }
         }
-        catch (NetworkInformationException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // Nếu không đọc được danh sách card mạng thì vẫn dùng 255.255.255.255 mặc định
+            // Dừng tử tế khi Server nhận lệnh tắt
         }
+        catch (SocketException ex)
+        {
+            ServerLog.Ghi("LOI", $"Lỗi mạng UDP Discovery ({ex.SocketErrorCode}): {ex.Message}");
+        }
+        finally
+        {
+            ServerLog.Ghi("UDP", "Đã dừng dịch vụ dò tìm LAN.");
+        }
+    }
 
-        return endpoints;
+    /// <summary>
+    /// Địa chỉ IP của Server mà Client có thể nối tới (card mạng dùng để đi tới Client).
+    /// Kết nối UDP chỉ chọn card mạng, không gửi gói nào.
+    /// </summary>
+    private static string? LayDiaChiCucBo(IPEndPoint khach)
+    {
+        try
+        {
+            using var socket = new Socket(khach.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            socket.Connect(khach);
+            return ((IPEndPoint)socket.LocalEndPoint!).Address.ToString();
+        }
+        catch (SocketException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Windows: gói ICMP "port unreachable" làm lần ReceiveAsync kế tiếp ném ConnectionReset.
+    /// Tắt hành vi này để dịch vụ UDP không tự dừng.
+    /// </summary>
+    private static void TatLoiConnReset(Socket socket)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            const int SioUdpConnReset = unchecked((int)0x9800000C);
+            socket.IOControl(SioUdpConnReset, new byte[] { 0, 0, 0, 0 }, null);
+        }
     }
 }
