@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using NT106.BT3.Server.Logging;
@@ -46,6 +48,12 @@ internal sealed class TcpServer
         var listener = new TcpListener(_cauHinh.DiaChiNghe, _cauHinh.Cong);
         listener.Start();
         ServerLog.Ghi("TCP", $"Đang nghe tại {listener.LocalEndpoint}");
+        if (_cauHinh.DiaChiNghe.Equals(IPAddress.Any))
+        {
+            ServerLog.Ghi("TCP", "0.0.0.0 nghĩa là nghe trên mọi card mạng. Client cùng máy nhập 127.0.0.1; client máy khác nhập một trong các địa chỉ sau:");
+            foreach (string diaChi in LayDiaChiMangNoiBo())
+                ServerLog.Ghi("TCP", $"  - {diaChi}:{_cauHinh.Cong}");
+        }
         return ChayVongNhanAsync(listener, token);
     }
 
@@ -222,6 +230,25 @@ internal sealed class TcpServer
         {
             ServerLog.Ghi("CANH BAO",
                 $"Không chỉnh được thông số KeepAlive ({ex.SocketErrorCode}); hệ điều hành dùng mặc định nên có thể rất lâu mới phát hiện rớt mạng.");
+        }
+    }
+
+    /// <summary>Liệt kê địa chỉ IPv4 của các card mạng đang bật (trừ loopback) để người dùng biết nhập IP nào vào Client.</summary>
+    private static List<string> LayDiaChiMangNoiBo()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up
+                         && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+                .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork)
+                .Select(a => a.Address.ToString())
+                .ToList();
+        }
+        catch (NetworkInformationException)
+        {
+            return new List<string>();   // chỉ là thông tin phụ, lấy không được thì bỏ qua
         }
     }
 
