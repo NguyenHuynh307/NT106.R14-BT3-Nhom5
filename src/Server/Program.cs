@@ -42,7 +42,7 @@ internal static class Program
 
         // ĐIỂM NỐI NGHIỆP VỤ: hiện là hàm echo để chạy thử đường truyền (Bước 4 của đề).
         // Khi Hoàng Anh xong RequestRouter (Bước 2.3), chỉ đổi đúng dòng này.
-        IMessageProcessor boXuLy = new EchoMessageProcessor();
+        IMessageProcessor boXuLy = new RequestRouter();
 
         var server = new TcpServer(boXuLy, cauHinh);
 
