@@ -42,7 +42,14 @@ internal static class Program
 
         // ĐIỂM NỐI NGHIỆP VỤ: hiện là hàm echo để chạy thử đường truyền (Bước 4 của đề).
         // Khi Hoàng Anh xong RequestRouter (Bước 2.3), chỉ đổi đúng dòng này.
-        IMessageProcessor boXuLy = new EchoMessageProcessor();
+  
+    var dbHelper = new NT106.BT3.Server.Data.DatabaseHelper();
+    NT106.BT3.Shared.Data.IUserRepository userRepo = new NT106.BT3.Server.Data.UserRepository(dbHelper);
+    NT106.BT3.Shared.Security.IPasswordHasher hasher = new NT106.BT3.Shared.Security.FakePasswordHasher();
+    var dangKyHandler = new NT106.BT3.Server.Handlers.DangKyHandler(userRepo, hasher);
+    var layThongTinHandler = new NT106.BT3.Server.Handlers.LayThongTinHandler(userRepo);
+
+    IMessageProcessor boXuLy = new RequestRouter(dangKyHandler, layThongTinHandler, userRepo, hasher);
 
         var server = new TcpServer(boXuLy, cauHinh);
 

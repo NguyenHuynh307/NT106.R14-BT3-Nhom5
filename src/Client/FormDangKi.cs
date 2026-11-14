@@ -1,17 +1,28 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
+using System.IO;
+using System.Net.Sockets;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Windows.Forms;
 
 namespace NT106.BT3.Client
 {
     public partial class FormDangKi : Form
     {
-        public FormDangKi()
+        private static readonly JsonSerializerOptions JsonOptions = new()
         {
+            PropertyNameCaseInsensitive = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+
+        private readonly string _serverIp;
+        private readonly int _serverPort;
+
+        public FormDangKi(string serverIp = "127.0.0.1", int serverPort = 5000)
+        {
+            _serverIp = serverIp;
+            _serverPort = serverPort;
             InitializeComponent();
         }
 
@@ -44,6 +55,7 @@ namespace NT106.BT3.Client
             {
                 lblCBTenDangNhap.Visible = false;
             }
+
             if (string.IsNullOrWhiteSpace(txtPassword.Text))
             {
                 lblCBMatKhau.Text = "Vui lòng nhập mật khẩu.";
@@ -60,6 +72,7 @@ namespace NT106.BT3.Client
             {
                 lblCBMatKhau.Visible = false;
             }
+
             if (string.IsNullOrWhiteSpace(txtConfirmPassword.Text))
             {
                 lblCBXacNhanMatKhau.Text = "Vui lòng xác nhận lại mật khẩu.";
@@ -76,6 +89,7 @@ namespace NT106.BT3.Client
             {
                 lblCBXacNhanMatKhau.Visible = false;
             }
+
             if (string.IsNullOrWhiteSpace(txtFullName.Text))
             {
                 lblCBHoVaTen.Text = "Vui lòng nhập họ và tên.";
@@ -86,6 +100,7 @@ namespace NT106.BT3.Client
             {
                 lblCBHoVaTen.Visible = false;
             }
+
             if (!string.IsNullOrWhiteSpace(txtEmail.Text))
             {
                 if (!txtEmail.Text.Contains("@") || !txtEmail.Text.Contains("."))
@@ -101,18 +116,87 @@ namespace NT106.BT3.Client
             }
             else
             {
-                lblEmailError.Visible = false; 
+                lblEmailError.Visible = false;
             }
+
             return isValid;
         }
 
-        private void btnDangKy_Click(object sender, EventArgs e)
+        private async void btnDangKy_Click(object sender, EventArgs e)
         {
             if (!inputValidator()) return;
-            //Lưu ý: Còn phải kiểm tra thêm các trường hợp sau trước khi ghi vào CSDL
-            //1. Email người dùng nhập vào đã được sử dụng chưa
-            //2. Thông tin tên đăng nhập và mật khẩu đã tồn tại chưa, nếu đã tồn tại thì không cho phép đăng nhập
-            //Rồi mới ghi nhận thông tin đăng ký của người dùng vào CSDL
+
+            btnDangKy.Enabled = false;
+            string oldText = btnDangKy.Text;
+            btnDangKy.Text = "Đang xử lý...";
+
+            try
+            {
+                using var tcpClient = new TcpClient();
+                await tcpClient.ConnectAsync(_serverIp, _serverPort);
+
+                await using NetworkStream stream = tcpClient.GetStream();
+                var utf8NoBom = new UTF8Encoding(false);
+                using var reader = new StreamReader(stream, utf8NoBom, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+                using var writer = new StreamWriter(stream, utf8NoBom, leaveOpen: true) { AutoFlush = true, NewLine = "\n" };
+
+                var payload = new
+                {
+                    Command = "DANGKY",
+                    Username = txtUsername.Text.Trim(),
+                    Password = txtPassword.Text,
+                    Email = string.IsNullOrWhiteSpace(txtEmail.Text) ? null : txtEmail.Text.Trim(),
+                    FullName = txtFullName.Text.Trim(),
+                    Birthday = (string?)null
+                };
+
+                string jsonRequest = JsonSerializer.Serialize(payload, JsonOptions);
+                await writer.WriteLineAsync(jsonRequest);
+
+                string? jsonResponse = await reader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(jsonResponse))
+                {
+                    MessageBox.Show("Không nhận được phản hồi từ máy chủ.", "Lỗi kết nối", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                using JsonDocument doc = JsonDocument.Parse(jsonResponse);
+                JsonElement root = doc.RootElement;
+                bool success = root.TryGetProperty("Success", out var sEl) && sEl.GetBoolean();
+                string code = root.TryGetProperty("Code", out var cEl) ? (cEl.GetString() ?? "") : "";
+                string message = root.TryGetProperty("Message", out var mEl) ? (mEl.GetString() ?? "Lỗi không xác định.") : "Lỗi không xác định.";
+
+                if (!success)
+                {
+                    if (code == "ERR_USERNAME_EXISTS")
+                    {
+                        lblCBTenDangNhap.Text = message;
+                        lblCBTenDangNhap.Visible = true;
+                        txtUsername.Focus();
+                    }
+                    else
+                    {
+                        MessageBox.Show(message, "Đăng ký không thành công", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                    return;
+                }
+
+                MessageBox.Show("Đăng ký tài khoản thành công!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                this.Close();
+            }
+            catch (Exception ex) when (ex is SocketException || ex is IOException)
+            {
+                MessageBox.Show("Không thể kết nối đến máy chủ. Vui lòng kiểm tra Server đang chạy tại " + $"{_serverIp}:{_serverPort}.", "Lỗi kết nối", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch (JsonException)
+            {
+                MessageBox.Show("Phản hồi từ máy chủ không hợp lệ.", "Lỗi dữ liệu", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                btnDangKy.Text = oldText;
+                btnDangKy.Enabled = true;
+            }
         }
     }
 }
