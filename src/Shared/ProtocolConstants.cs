@@ -17,11 +17,12 @@ namespace Shared
         public const string CmdGetInfo = "LAYTHONGTIN";
         public const string CmdLogout = "DANGXUAT";
 
-        // Bảng mã trạng thái / mã lỗi (0 - 4)
+        // Bảng mã trạng thái / mã lỗi (0 - 5)
         public const int CodeSuccess = 0;           // Thành công
         public const int CodeInvalidFormat = 1;     // Sai cú pháp hoặc thiếu tham số
         public const int CodeUserExists = 2;        // Tài khoản đã tồn tại (DANGKY)
         public const int CodeAuthFailed = 3;        // Sai tài khoản hoặc mật khẩu (DANGNHAP)
-        public const int CodeUnauthorized = 4;      // Chưa đăng nhập / Không có quyền / Lỗi hệ thống
+        public const int CodeUnauthorized = 4;      // Chưa đăng nhập hoặc không có quyền
+        public const int CodeSystemError = 5;       // Lỗi hệ thống / Lỗi xử lý nội bộ Server
     }
 }
