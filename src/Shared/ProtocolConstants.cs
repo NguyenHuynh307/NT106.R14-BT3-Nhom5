@@ -9,6 +9,7 @@ namespace Shared
         public const string Delimiter = "\n";
         public const char FieldSeparator = '|';
         public static readonly Encoding MessageEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        public const int MaxMessageBytes = 64 * 1024;   // giới hạn 1 thông điệp (byte), không tính '\n'
 
         // 4 lệnh chuẩn của hệ thống
         public const string CmdRegister = "DANGKY";
