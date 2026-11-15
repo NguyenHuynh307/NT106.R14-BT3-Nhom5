@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using NT106.BT3.Server.Logging;
@@ -46,6 +48,12 @@ internal sealed class TcpServer
         var listener = new TcpListener(_cauHinh.DiaChiNghe, _cauHinh.Cong);
         listener.Start();
         ServerLog.Ghi("TCP", $"Đang nghe tại {listener.LocalEndpoint}");
+        if (_cauHinh.DiaChiNghe.Equals(IPAddress.Any))
+        {
+            ServerLog.Ghi("TCP", "0.0.0.0 nghĩa là nghe trên mọi card mạng. Client cùng máy nhập 127.0.0.1; client máy khác nhập một trong các địa chỉ sau:");
+            foreach (string diaChi in LayDiaChiMangNoiBo())
+                ServerLog.Ghi("TCP", $"  - {diaChi}:{_cauHinh.Cong}");
+        }
         return ChayVongNhanAsync(listener, token);
     }
 
@@ -140,7 +148,7 @@ internal sealed class TcpServer
                     lyDo = "client đóng kết nối (tắt cửa sổ hoặc ngắt kết nối)";
                     break;
                 }
-                if (thongDiep.Length == 0) continue;   // dòng trống: bỏ qua
+                // Khong bo qua dong trong: chuyen xuong RequestRouter de tra ma 1 theo dac ta giao thuc.
 
                 // Chỉ ghi SỐ BYTE, không ghi nội dung (nội dung có thể chứa mật khẩu).
                 ServerLog.Ghi("TCP", $"< {phien.Id} nhận {Encoding.UTF8.GetByteCount(thongDiep)} byte");
@@ -165,7 +173,7 @@ internal sealed class TcpServer
                 ? "server dừng"
                 : $"im lặng quá {_cauHinh.ThoiGianImLang.TotalSeconds:0} giây";
         }
-        catch (ThongDiepQuaDaiException)
+        catch (InvalidDataException)
         {
             lyDo = "gửi thông điệp quá 64 KiB, Server đóng kết nối";
         }
@@ -222,6 +230,25 @@ internal sealed class TcpServer
         {
             ServerLog.Ghi("CANH BAO",
                 $"Không chỉnh được thông số KeepAlive ({ex.SocketErrorCode}); hệ điều hành dùng mặc định nên có thể rất lâu mới phát hiện rớt mạng.");
+        }
+    }
+
+    /// <summary>Liệt kê địa chỉ IPv4 của các card mạng đang bật (trừ loopback) để người dùng biết nhập IP nào vào Client.</summary>
+    private static List<string> LayDiaChiMangNoiBo()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up
+                         && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+                .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork)
+                .Select(a => a.Address.ToString())
+                .ToList();
+        }
+        catch (NetworkInformationException)
+        {
+            return new List<string>();   // chỉ là thông tin phụ, lấy không được thì bỏ qua
         }
     }
 

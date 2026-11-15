@@ -16,6 +16,7 @@ namespace NT106.BT3.Server.Data
     {
         private const string DefaultConnectionString =
             "Server=localhost\\SQLEXPRESS;Database=healthInforDB;Trusted_Connection=True;TrustServerCertificate=True;Connect Timeout=5;";
+   
 
         private readonly string _connectionString;
 

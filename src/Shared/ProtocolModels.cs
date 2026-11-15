@@ -16,7 +16,16 @@
         // Chuyển thành chuỗi gửi đi: COMMAND|arg1|arg2...
         public string Serialize()
         {
-            if (Args.Length == 0)
+            ValidateNoSeparator(Command, nameof(Command));
+            if (Args != null)
+            {
+                foreach (string arg in Args)
+                {
+                    ValidateNoSeparator(arg, nameof(Args));
+                }
+            }
+
+            if (Args == null || Args.Length == 0)
                 return Command;
 
             return $"{Command}{ProtocolConstants.FieldSeparator}{string.Join(ProtocolConstants.FieldSeparator, Args)}";
@@ -36,6 +45,16 @@
                 Command = parts[0].Trim().ToUpperInvariant(),
                 Args = parts.Length > 1 ? parts[1..] : Array.Empty<string>()
             };
+        }
+
+        private static void ValidateNoSeparator(string? value, string paramName)
+        {
+            if (!string.IsNullOrEmpty(value) && value.Contains(ProtocolConstants.FieldSeparator))
+            {
+                throw new ArgumentException(
+                    $"Trường '{paramName}' không được chứa ký tự phân tách '{ProtocolConstants.FieldSeparator}'.",
+                    paramName);
+            }
         }
     }
 
@@ -59,8 +78,17 @@
         // Chuyển thành chuỗi phản hồi: STATUS_CODE|MESSAGE|data1|data2...
         public string Serialize()
         {
+            ValidateNoSeparator(Message, nameof(Message));
+            if (Data != null)
+            {
+                foreach (string item in Data)
+                {
+                    ValidateNoSeparator(item, nameof(Data));
+                }
+            }
+
             string header = $"{StatusCode}{ProtocolConstants.FieldSeparator}{Message}";
-            if (Data.Length == 0)
+            if (Data == null || Data.Length == 0)
                 return header;
 
             return $"{header}{ProtocolConstants.FieldSeparator}{string.Join(ProtocolConstants.FieldSeparator, Data)}";
@@ -84,6 +112,16 @@
             string[] extraData = parts.Length > 2 ? parts[2..] : Array.Empty<string>();
 
             return new ResponseMessage(code, msg, extraData);
+        }
+
+        private static void ValidateNoSeparator(string? value, string paramName)
+        {
+            if (!string.IsNullOrEmpty(value) && value.Contains(ProtocolConstants.FieldSeparator))
+            {
+                throw new ArgumentException(
+                    $"Trường '{paramName}' không được chứa ký tự phân tách '{ProtocolConstants.FieldSeparator}'.",
+                    paramName);
+            }
         }
     }
 }
