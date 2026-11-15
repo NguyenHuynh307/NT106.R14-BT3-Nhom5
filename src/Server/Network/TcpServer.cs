@@ -148,7 +148,7 @@ internal sealed class TcpServer
                     lyDo = "client đóng kết nối (tắt cửa sổ hoặc ngắt kết nối)";
                     break;
                 }
-                if (thongDiep.Length == 0) continue;   // dòng trống: bỏ qua
+                // Khong bo qua dong trong: chuyen xuong RequestRouter de tra ma 1 theo dac ta giao thuc.
 
                 // Chỉ ghi SỐ BYTE, không ghi nội dung (nội dung có thể chứa mật khẩu).
                 ServerLog.Ghi("TCP", $"< {phien.Id} nhận {Encoding.UTF8.GetByteCount(thongDiep)} byte");

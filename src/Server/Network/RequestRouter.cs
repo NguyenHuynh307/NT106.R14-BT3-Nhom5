@@ -1,4 +1,4 @@
-using NT106.BT3.Server.Logging;
+﻿using NT106.BT3.Server.Logging;
 using Shared;
 
 namespace NT106.BT3.Server.Network;
@@ -58,6 +58,13 @@ internal sealed class RequestRouter : IMessageProcessor
 
         try
         {
+            ResponseMessage? loiThamSo = KiemTraSoThamSo(request);
+            if (loiThamSo is not null)
+            {
+                ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gửi sai số tham số cho lệnh {request.Command} ({request.Args.Length} tham số).");
+                return loiThamSo.Serialize();
+            }
+
             ResponseMessage response = request.Command switch
             {
                 ProtocolConstants.CmdRegister => await _xuLyDangKy(request, phien, token),
@@ -118,6 +125,30 @@ internal sealed class RequestRouter : IMessageProcessor
         return new ResponseMessage(ProtocolConstants.CodeSuccess, "Đăng xuất thành công.");
     }
 
+    private static ResponseMessage? KiemTraSoThamSo(RequestMessage request)
+    {
+        return request.Command switch
+        {
+            ProtocolConstants.CmdRegister when request.Args.Length != 5 =>
+                new ResponseMessage(
+                    ProtocolConstants.CodeInvalidFormat,
+                    "Yêu cầu đăng ký phải có đúng 5 tham số (Username, Password, Email, FullName, Birthday)."),
+            ProtocolConstants.CmdLogin when request.Args.Length != 2 =>
+                new ResponseMessage(
+                    ProtocolConstants.CodeInvalidFormat,
+                    "Yêu cầu đăng nhập phải có đúng 2 tham số (Username, Password)."),
+            ProtocolConstants.CmdGetInfo when request.Args.Length != 0 =>
+                new ResponseMessage(
+                    ProtocolConstants.CodeInvalidFormat,
+                    "Lệnh LAYTHONGTIN không nhận tham số."),
+            ProtocolConstants.CmdLogout when request.Args.Length != 0 =>
+                new ResponseMessage(
+                    ProtocolConstants.CodeInvalidFormat,
+                    "Lệnh DANGXUAT không nhận tham số."),
+            _ => null
+        };
+    }
+
     private static ResponseMessage XuLyLenhLa(ClientSession phien, string command)
     {
         ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gửi lệnh không hỗ trợ: {command}");
@@ -133,11 +164,11 @@ internal sealed class RequestRouter : IMessageProcessor
         ClientSession phien,
         CancellationToken token)
     {
-        if (request.Args.Length < 5)
+        if (request.Args.Length != 5)
         {
             return Task.FromResult(new ResponseMessage(
                 ProtocolConstants.CodeInvalidFormat,
-                "Thiếu thông tin đăng ký (cần: Username|Password|Email|FullName|Birthday)."));
+                "Thiếu thông tin đăng ký (cần đủ 5 trường: Username, Password, Email, FullName, Birthday)."));
         }
 
         string username = request.Args[0].Trim();
@@ -152,7 +183,7 @@ internal sealed class RequestRouter : IMessageProcessor
         ClientSession phien,
         CancellationToken token)
     {
-        if (request.Args.Length < 2 ||
+        if (request.Args.Length != 2 ||
             string.IsNullOrWhiteSpace(request.Args[0]) ||
             string.IsNullOrWhiteSpace(request.Args[1]))
         {
@@ -168,7 +199,10 @@ internal sealed class RequestRouter : IMessageProcessor
         return Task.FromResult(new ResponseMessage(
             ProtocolConstants.CodeSuccess,
             "Đăng nhập thành công (Mock).",
-            username));
+            username,
+            string.Empty,
+            string.Empty,
+            string.Empty));
     }
 
     private static Task<ResponseMessage> LayThongTinGiaLapAsync(
@@ -183,8 +217,8 @@ internal sealed class RequestRouter : IMessageProcessor
             ProtocolConstants.CodeSuccess,
             "Lấy thông tin người dùng thành công (Mock).",
             username,
-            $"{username}@example.com",
-            "Người dùng thử nghiệm",
-            "2000-01-01"));
+            string.Empty,
+            string.Empty,
+            string.Empty));
     }
 }
