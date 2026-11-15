@@ -10,10 +10,6 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new Form
-        {
-            Text = "NT106 BT3 - Client (khung tạm, chờ FrmDangNhap)",
-            StartPosition = FormStartPosition.CenterScreen
-        });
+        Application.Run(new FormDangNhap());
     }
 }

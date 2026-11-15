@@ -1,190 +1,184 @@
+using NT106.BT3.Server.Handlers;
 using NT106.BT3.Server.Logging;
-using Shared;
+using NT106.BT3.Server.Security;
+using NT106.BT3.Shared.Data;
+using NT106.BT3.Shared.Security;
+using System;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
-namespace NT106.BT3.Server.Network;
-
-/// <summary>
-/// Bộ phân tích và điều phối lệnh phía Server (Bước 2.3).
-/// Nhận chuỗi thông điệp từ TcpServer, phân tích thành RequestMessage,
-/// gọi handler tương ứng (DANGKY, DANGNHAP, LAYTHONGTIN) hoặc xử lý trực tiếp DANGXUAT.
-/// </summary>
-internal sealed class RequestRouter : IMessageProcessor
+namespace NT106.BT3.Server.Network
 {
-    public delegate Task<ResponseMessage> CommandHandlerAsync(
-        RequestMessage request,
-        ClientSession phien,
-        CancellationToken token);
-
-    private readonly CommandHandlerAsync _xuLyDangKy;
-    private readonly CommandHandlerAsync _xuLyDangNhap;
-    private readonly CommandHandlerAsync _xuLyLayThongTin;
-
-    public RequestRouter(
-        CommandHandlerAsync? xuLyDangKy = null,
-        CommandHandlerAsync? xuLyDangNhap = null,
-        CommandHandlerAsync? xuLyLayThongTin = null)
-    {
-        _xuLyDangKy = xuLyDangKy ?? DangKyMacDinhAsync;
-        _xuLyDangNhap = xuLyDangNhap ?? DangNhapGiaLapAsync;
-        _xuLyLayThongTin = xuLyLayThongTin ?? LayThongTinGiaLapAsync;
-    }
-
-    public async Task<string?> XuLyAsync(ClientSession phien, string thongDiep, CancellationToken token)
-    {
-        if (string.IsNullOrWhiteSpace(thongDiep))
-        {
-            ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gửi gói tin rỗng.");
-            return new ResponseMessage(ProtocolConstants.CodeInvalidFormat, "Thông điệp rỗng.").Serialize();
-        }
-
-        RequestMessage request;
-        try
-        {
-            request = RequestMessage.Parse(thongDiep);
-        }
-        catch (Exception)
-        {
-            ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gửi gói tin sai định dạng.");
-            return new ResponseMessage(ProtocolConstants.CodeInvalidFormat, "Định dạng thông điệp không hợp lệ.").Serialize();
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Command))
-        {
-            ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] thiếu mã lệnh.");
-            return new ResponseMessage(ProtocolConstants.CodeInvalidFormat, "Thiếu mã lệnh yêu cầu.").Serialize();
-        }
-
-        ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] ({phien.TenDangNhap ?? phien.DiaChiClient}) -> Lệnh: {request.Command}");
-
-        try
-        {
-            ResponseMessage response = request.Command switch
-            {
-                ProtocolConstants.CmdRegister => await _xuLyDangKy(request, phien, token),
-                ProtocolConstants.CmdLogin => await _xuLyDangNhap(request, phien, token),
-                ProtocolConstants.CmdGetInfo => await XuLyLayThongTinAsync(request, phien, token),
-                ProtocolConstants.CmdLogout => XuLyDangXuat(phien),
-                _ => XuLyLenhLa(phien, request.Command)
-            };
-
-            return response.Serialize();
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception)
-        {
-            // Không ghi mật khẩu/token và không lộ tên ngoại lệ C# về Client
-            ServerLog.Ghi("LOI", $"Lỗi nội bộ khi xử lý lệnh {request.Command} cho phiên [{phien.Id}].");
-            return new ResponseMessage(
-                ProtocolConstants.CodeSystemError,
-                "Lỗi hệ thống khi xử lý yêu cầu trên Server.").Serialize();
-        }
-    }
-
-    private async Task<ResponseMessage> XuLyLayThongTinAsync(
-        RequestMessage request,
-        ClientSession phien,
-        CancellationToken token)
-    {
-        if (string.IsNullOrWhiteSpace(phien.TenDangNhap))
-        {
-            ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gọi {ProtocolConstants.CmdGetInfo} khi chưa đăng nhập.");
-            return new ResponseMessage(
-                ProtocolConstants.CodeUnauthorized,
-                "Bạn chưa đăng nhập. Vui lòng đăng nhập trước.");
-        }
-
-        return await _xuLyLayThongTin(request, phien, token);
-    }
-
     /// <summary>
-    /// Xử lý lệnh DANGXUAT (Bước 6 của đề):
-    /// Đánh dấu YeuCauDong = true để TcpServer gửi phản hồi xong sẽ đóng kết nối
-    /// và gỡ phiên khỏi ConcurrentDictionary trong khối finally.
+    /// Bộ định tuyến thông điệp phía Server cài đặt IMessageProcessor (kết nối TcpServer với UserRepository).
+    /// Nhận JSON UTF-8 từ Client -> phân tích Command (DANGKY, DANGNHAP, LAYTHONGTIN, DANGXUAT) -> trả JSON phản hồi.
     /// </summary>
-    private static ResponseMessage XuLyDangXuat(ClientSession phien)
+    internal sealed class RequestRouter : IMessageProcessor
     {
-        string nhanHienThi = string.IsNullOrWhiteSpace(phien.TenDangNhap)
-            ? $"khách ({phien.DiaChiClient})"
-            : $"tài khoản '{phien.TenDangNhap}'";
-
-        phien.TenDangNhap = null;
-        phien.YeuCauDong = true;
-
-        ServerLog.Ghi("DANGXUAT", $"Phiên [{phien.Id}] - {nhanHienThi} đã đăng xuất và yêu cầu đóng kết nối.");
-
-        return new ResponseMessage(ProtocolConstants.CodeSuccess, "Đăng xuất thành công.");
-    }
-
-    private static ResponseMessage XuLyLenhLa(ClientSession phien, string command)
-    {
-        ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gửi lệnh không hỗ trợ: {command}");
-        return new ResponseMessage(
-            ProtocolConstants.CodeInvalidFormat,
-            $"Lệnh '{command}' không được hệ thống hỗ trợ.");
-    }
-
-    // --- Các handler giả lập mặc định dùng để chạy/test độc lập khi chưa ghép handler thật ---
-
-    private static Task<ResponseMessage> DangKyMacDinhAsync(
-        RequestMessage request,
-        ClientSession phien,
-        CancellationToken token)
-    {
-        if (request.Args.Length < 5)
+        private static readonly JsonSerializerOptions JsonOptions = new()
         {
-            return Task.FromResult(new ResponseMessage(
-                ProtocolConstants.CodeInvalidFormat,
-                "Thiếu thông tin đăng ký (cần: Username|Password|Email|FullName|Birthday)."));
+            PropertyNameCaseInsensitive = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+
+        private readonly DangKyHandler _dangKyHandler;
+        private readonly LayThongTinHandler _layThongTinHandler;
+        private readonly IUserRepository _userRepository;
+        private readonly DangNhapHandler _dangNhapHandler;
+        private readonly IPasswordHasher _passwordHasher;
+        private readonly SessionTokenManager _tokenManager;
+
+        public RequestRouter(
+            DangKyHandler dangKyHandler,
+            DangNhapHandler dangNhapHandler,
+            LayThongTinHandler layThongTinHandler,
+            IUserRepository userRepository,
+            IPasswordHasher passwordHasher,
+            SessionTokenManager tokenManager)
+        {
+            _dangKyHandler = dangKyHandler ?? throw new ArgumentNullException(nameof(dangKyHandler));
+            _dangNhapHandler = dangNhapHandler ?? throw new ArgumentNullException(nameof(dangNhapHandler));
+            _layThongTinHandler = layThongTinHandler ?? throw new ArgumentNullException(nameof(layThongTinHandler));
+            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+            _passwordHasher = passwordHasher ?? throw new ArgumentNullException(nameof(passwordHasher));
+            _tokenManager = tokenManager ?? throw new ArgumentNullException(nameof(tokenManager));
         }
 
-        string username = request.Args[0].Trim();
-        ServerLog.Ghi("DANGKY", $"[Mock] Phiên [{phien.Id}] đăng ký tài khoản '{username}'.");
-        return Task.FromResult(new ResponseMessage(
-            ProtocolConstants.CodeSuccess,
-            "Đăng ký tài khoản thành công (Mock)."));
-    }
-
-    private static Task<ResponseMessage> DangNhapGiaLapAsync(
-        RequestMessage request,
-        ClientSession phien,
-        CancellationToken token)
-    {
-        if (request.Args.Length < 2 ||
-            string.IsNullOrWhiteSpace(request.Args[0]) ||
-            string.IsNullOrWhiteSpace(request.Args[1]))
+        public async Task<string?> XuLyAsync(ClientSession phien, string thongDiep, CancellationToken token)
         {
-            return Task.FromResult(new ResponseMessage(
-                ProtocolConstants.CodeInvalidFormat,
-                "Thiếu tên đăng nhập hoặc mật khẩu."));
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(thongDiep);
+                JsonElement root = doc.RootElement;
+
+                if (!root.TryGetProperty("Command", out JsonElement cmdEl) &&
+                    !root.TryGetProperty("command", out cmdEl))
+                {
+                    return Serialize(new HandlerResponse<object>(false, "ERR_INVALID_FORMAT", "Thiếu trường Command."));
+                }
+
+                string command = (cmdEl.GetString() ?? string.Empty).Trim().ToUpperInvariant();
+
+                return command switch
+                {
+                    "DANGKY" => await HandleDangKyAsync(root, token).ConfigureAwait(false),
+                    "DANGNHAP" => await HandleDangNhapAsync(phien, root, token).ConfigureAwait(false),
+                    "LAYTHONGTIN" => await HandleLayThongTinAsync(phien,root, token).ConfigureAwait(false),
+                    "DANGXUAT" => HandleDangXuat(phien, root),
+                    _ => Serialize(new HandlerResponse<object>(false, "ERR_UNKNOWN_COMMAND", $"Lệnh '{command}' không được hỗ trợ."))
+                };
+            }
+            catch (JsonException)
+            {
+                return Serialize(new HandlerResponse<object>(false, "ERR_INVALID_JSON", "Gói tin JSON không hợp lệ."));
+            }
+            catch (Exception ex)
+            {
+                ServerLog.Ghi("LOI-ROUTER", $"Lỗi xử lý phiên {phien.Id}: {ex.GetType().Name}");
+                return Serialize(new HandlerResponse<object>(false, "ERR_SERVER", "Máy chủ gặp sự cố khi xử lý yêu cầu."));
+            }
         }
 
-        string username = request.Args[0].Trim();
-        phien.TenDangNhap = username;
-        ServerLog.Ghi("DANGNHAP", $"[Mock] Phiên [{phien.Id}] đăng nhập thành công với tài khoản '{username}'.");
+        private async Task<string> HandleDangKyAsync(JsonElement root, CancellationToken token)
+        {
+            string username = GetString(root, "Username");
+            string password = GetString(root, "Password");
+            string fullName = GetString(root, "FullName");
+            string? email = GetOptionalString(root, "Email");
+            DateTime? birthday = GetOptionalDate(root, "Birthday");
 
-        return Task.FromResult(new ResponseMessage(
-            ProtocolConstants.CodeSuccess,
-            "Đăng nhập thành công (Mock).",
-            username));
-    }
+            var req = new DangKyRequest(username, password, email, fullName, birthday);
+            var res = await _dangKyHandler.XuLyAsync(req, token).ConfigureAwait(false);
+            return Serialize(res);
+        }
 
-    private static Task<ResponseMessage> LayThongTinGiaLapAsync(
-        RequestMessage request,
-        ClientSession phien,
-        CancellationToken token)
-    {
-        string username = phien.TenDangNhap!;
-        ServerLog.Ghi("LAYTHONGTIN", $"[Mock] Phiên [{phien.Id}] lấy thông tin tài khoản '{username}'.");
+        private async Task<string> HandleDangNhapAsync(ClientSession phien, JsonElement root, CancellationToken token)
+        {
+            string username = GetString(root, "Username");
+            string password = GetString(root, "Password");
 
-        return Task.FromResult(new ResponseMessage(
-            ProtocolConstants.CodeSuccess,
-            "Lấy thông tin người dùng thành công (Mock).",
-            username,
-            $"{username}@example.com",
-            "Người dùng thử nghiệm",
-            "2000-01-01"));
+            var res = await _dangNhapHandler.XuLyAsync(username, password, phien, token).ConfigureAwait(false);
+            return Serialize(res);
+        }
+
+        private async Task<string> HandleLayThongTinAsync(ClientSession phien, JsonElement root, CancellationToken token)
+        {
+            //var res = await _layThongTinHandler.XuLyAsync(phien.TenDangNhap, token).ConfigureAwait(false);
+            //return Serialize(res);
+
+            string clientToken = GetString(root, "SessionToken");
+            if (string.IsNullOrWhiteSpace(clientToken))
+            {
+                clientToken = phien.SessionToken ?? string.Empty;
+            }
+
+            var check = _tokenManager.KiemTraVaLayUser(clientToken);
+
+            if (check.TrangThai == TrangThaiToken.HetHan)
+            {
+                phien.TenDangNhap = null;
+                phien.SessionToken = null;
+                ServerLog.Ghi("TOKEN", $"Phiên [{phien.Id}] gửi token đã hết hạn.");
+                return Serialize(new HandlerResponse<object>(false, "TOKEN_EXPIRED", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."));
+            }
+
+            if (check.TrangThai == TrangThaiToken.KhongHopLe || check.Username is null)
+            {
+                return Serialize(new HandlerResponse<object>(false, "UNAUTHORIZED", "Token không hợp lệ hoặc chưa đăng nhập."));
+            }
+
+            var res = await _layThongTinHandler.XuLyAsync(check.Username, token).ConfigureAwait(false);
+            return Serialize(res);
+        }
+
+        private string HandleDangXuat(ClientSession phien, JsonElement root)
+        {
+            //ServerLog.Ghi("DANGXUAT", $"Phiên {phien.Id} ({phien.TenDangNhap ?? "chưa đăng nhập"}) yêu cầu đăng xuất.");
+            //phien.TenDangNhap = null;
+            //phien.YeuCauDong = true;
+            //return Serialize(new HandlerResponse<object>(true, "OK", "Đăng xuất thành công."));
+            string clientToken = GetString(root, "SessionToken");
+            if (string.IsNullOrWhiteSpace(clientToken))
+            {
+                clientToken = phien.SessionToken ?? string.Empty;
+            }
+
+            _tokenManager.ThuHoiToken(clientToken);
+            ServerLog.Ghi("DANGXUAT", $"Phiên {phien.Id} ({phien.TenDangNhap ?? "chưa đăng nhập"}) yêu cầu đăng xuất (đã hủy token).");
+
+            phien.TenDangNhap = null;
+            phien.SessionToken = null;
+            phien.YeuCauDong = true;
+            return Serialize(new HandlerResponse<object>(true, "SUCCESS", "Đăng xuất thành công."));
+        }
+
+        private static string GetString(JsonElement root, string name)
+        {
+            foreach (var prop in root.EnumerateObject())
+            {
+                if (string.Equals(prop.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                    prop.Value.ValueKind == JsonValueKind.String)
+                {
+                    return prop.Value.GetString() ?? string.Empty;
+                }
+            }
+            return string.Empty;
+        }
+
+        private static string? GetOptionalString(JsonElement root, string name)
+        {
+            string val = GetString(root, name);
+            return string.IsNullOrWhiteSpace(val) ? null : val;
+        }
+
+        private static DateTime? GetOptionalDate(JsonElement root, string name)
+        {
+            string val = GetString(root, name);
+            return DateTime.TryParse(val, out DateTime dt) ? dt.Date : null;
+        }
+
+        private static string Serialize<T>(T obj) => JsonSerializer.Serialize(obj, JsonOptions);
     }
 }
