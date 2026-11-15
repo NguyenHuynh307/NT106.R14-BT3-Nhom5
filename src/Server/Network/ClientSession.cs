@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using Shared;
 
 namespace NT106.BT3.Server.Network;
 
@@ -10,7 +11,6 @@ internal sealed class ClientSession : IDisposable
 {
     private readonly TcpClient _client;
     private readonly NetworkStream _luong;
-    private readonly BoDocKhungLfTam _boDoc;
 
     // Nhiều tác vụ có thể cùng gửi cho một client; trong lúc ghi có await nên dùng SemaphoreSlim, không dùng lock.
     private readonly SemaphoreSlim _khoaGhi = new(1, 1);
@@ -33,11 +33,10 @@ internal sealed class ClientSession : IDisposable
         _client = client;
         DiaChiClient = client.Client.RemoteEndPoint?.ToString() ?? "không rõ";
         _luong = client.GetStream();
-        _boDoc = new BoDocKhungLfTam(_luong);
     }
 
     /// <summary>Đọc một thông điệp. null = client đã đóng kết nối đàng hoàng.</summary>
-    public Task<string?> DocAsync(CancellationToken token) => _boDoc.DocDongAsync(token);
+    public Task<string?> DocAsync(CancellationToken token) => SocketStreamHelper.ReceiveLineAsync(_luong, token);
 
     /// <summary>Gửi một thông điệp (tự thêm LF). An toàn khi nhiều tác vụ cùng gọi.</summary>
     public async Task GuiAsync(string thongDiep, CancellationToken token)
@@ -45,7 +44,7 @@ internal sealed class ClientSession : IDisposable
         await _khoaGhi.WaitAsync(token);
         try
         {
-            await KhungLfTam.GhiAsync(_luong, thongDiep, token);
+            await SocketStreamHelper.SendLineAsync(_luong, thongDiep, token);
         }
         finally
         {
