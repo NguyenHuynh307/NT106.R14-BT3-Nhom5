@@ -45,11 +45,12 @@ internal static class Program
         IMessageProcessor boXuLy = new RequestRouter();
 
         var server = new TcpServer(boXuLy, cauHinh);
+        var udpDiscovery = new UdpDiscoveryServer(cauHinh.Cong);
 
-        Task chay;
+        Task chayTcp;
         try
         {
-            chay = server.StartAsync(dung.Token);
+            chayTcp = server.StartAsync(dung.Token);
         }
         catch (SocketException ex)
         {
@@ -57,8 +58,10 @@ internal static class Program
             return 1;
         }
 
+        Task chayUdp = udpDiscovery.StartAsync(dung.Token);
+
         ServerLog.Ghi("SERVER", "Nhấn Enter hoặc Ctrl+C để dừng Server.");
-        await chay;
+        await Task.WhenAll(chayTcp, chayUdp);
         return 0;
     }
 }
