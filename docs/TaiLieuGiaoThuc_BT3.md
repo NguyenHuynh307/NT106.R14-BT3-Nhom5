@@ -43,3 +43,8 @@ Ghi chú dữ liệu:
 | `3` | `CodeAuthFailed` | Sai tài khoản hoặc mật khẩu (`DANGNHAP`) |
 | `4` | `CodeUnauthorized` | Chưa đăng nhập hoặc phiên không hợp lệ |
 | `5` | `CodeSystemError` | Lỗi hệ thống / Lỗi xử lý nội bộ Server |
+
+### 5. Dò tìm Server qua UDP (Tính năng nâng cao)
+- Server lắng nghe gói UDP tại cổng 5001.
+- Client phát gói tin `DISCOVER_NT106_SERVER`.
+- Server phản hồi `NT106_SERVER|<IP_Server>|<Cổng_TCP>` để Client tự động điền IP và Port.
