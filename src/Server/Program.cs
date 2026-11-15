@@ -1,7 +1,13 @@
 using System.Net.Sockets;
 using System.Text;
+using NT106.BT3.Server.Data;
+using NT106.BT3.Server.Handlers;
 using NT106.BT3.Server.Logging;
 using NT106.BT3.Server.Network;
+using NT106.BT3.Server.Security;
+using NT106.BT3.Shared.Data;
+using NT106.BT3.Shared.Security;
+using Shared;
 
 namespace NT106.BT3.Server;
 
@@ -24,10 +30,9 @@ internal static class Program
 
         using var dung = new CancellationTokenSource();
 
-        // Dừng Server tử tế bằng CancellationToken: Ctrl+C hoặc Enter đều chạy về cùng một đường (Mục III.8 ý 5).
         Console.CancelKeyPress += (_, e) =>
         {
-            e.Cancel = true;   // không để tiến trình bị giết đột ngột; để vòng lặp tự dừng và gọi Stop()
+            e.Cancel = true;
             dung.Cancel();
         };
 
@@ -40,9 +45,64 @@ internal static class Program
             });
         }
 
-        // \u0110I\u1EC2M N\u1ED0I NGHI\u1EC6P V\u1EE4: nh\u1EADn RequestRouter l\u00E0m b\u1ED9 x\u1EED l\u00FD l\u1EC7nh m\u1EB7c \u0111\u1ECBnh.
-        // C\u00E1c handler nghi\u1EC7p v\u1EE5 th\u1EADt (DANGKY, DANGNHAP, LAYTHONGTIN) s\u1EBD \u0111\u01B0\u1EE3c truy\u1EC1n v\u00E0o qua delegate khi gh\u00E9p.
-        IMessageProcessor boXuLy = new RequestRouter();
+        var dbHelper = new DatabaseHelper();
+        IUserRepository userRepo = new UserRepository(dbHelper);
+        IPasswordHasher hasher = new MatKhau();
+
+        var dangKyHandler = new DangKyHandler(userRepo, hasher);
+        var layThongTinHandler = new LayThongTinHandler(userRepo);
+        var dangNhapHandler = new DangNhapHandler(userRepo, hasher, layThongTinHandler);
+
+        IMessageProcessor boXuLy = new RequestRouter(
+            xuLyDangKy: async (req, _, token) =>
+            {
+                DateTime? birthday = null;
+                if (!string.IsNullOrWhiteSpace(req.Args[4]))
+                {
+                    if (!DateTime.TryParse(req.Args[4], out DateTime parsedDate))
+                    {
+                        return new ResponseMessage(
+                            ProtocolConstants.CodeInvalidFormat,
+                            "Ngày sinh không hợp lệ (định dạng yyyy-MM-dd).");
+                    }
+                    birthday = parsedDate.Date;
+                }
+
+                var r = await dangKyHandler.XuLyAsync(
+                    new DangKyRequest(req.Args[0], req.Args[1], req.Args[2], req.Args[3], birthday),
+                    token).ConfigureAwait(false);
+                return new ResponseMessage(MapCode(r.Code), r.Message);
+            },
+            xuLyDangNhap: async (req, phien, token) =>
+            {
+                var r = await dangNhapHandler.XuLyAsync(req.Args[0], req.Args[1], phien, token).ConfigureAwait(false);
+                if (r.Success && r.Data is not null)
+                {
+                    return new ResponseMessage(
+                        ProtocolConstants.CodeSuccess,
+                        r.Message,
+                        r.Data.Username,
+                        r.Data.Email ?? string.Empty,
+                        r.Data.FullName,
+                        r.Data.Birthday?.ToString("yyyy-MM-dd") ?? string.Empty);
+                }
+                return new ResponseMessage(MapCode(r.Code), r.Message);
+            },
+            xuLyLayThongTin: async (_, phien, token) =>
+            {
+                var r = await layThongTinHandler.XuLyAsync(phien.TenDangNhap, token).ConfigureAwait(false);
+                if (r.Success && r.Data is not null)
+                {
+                    return new ResponseMessage(
+                        ProtocolConstants.CodeSuccess,
+                        r.Message,
+                        r.Data.Username,
+                        r.Data.Email ?? string.Empty,
+                        r.Data.FullName,
+                        r.Data.Birthday?.ToString("yyyy-MM-dd") ?? string.Empty);
+                }
+                return new ResponseMessage(MapCode(r.Code), r.Message);
+            });
 
         var server = new TcpServer(boXuLy, cauHinh);
         var udpDiscovery = new UdpDiscoveryServer(cauHinh.Cong);
@@ -64,4 +124,14 @@ internal static class Program
         await Task.WhenAll(chayTcp, chayUdp);
         return 0;
     }
+
+    private static int MapCode(string code) => code switch
+    {
+        "SUCCESS" or "OK" => ProtocolConstants.CodeSuccess,
+        "ERR_INVALID_INPUT" or "BAD_REQUEST" or "ERR_INVALID_FORMAT" => ProtocolConstants.CodeInvalidFormat,
+        "ERR_USERNAME_EXISTS" => ProtocolConstants.CodeUserExists,
+        "INVALID_CREDENTIALS" or "ERR_AUTH_FAILED" => ProtocolConstants.CodeAuthFailed,
+        "ERR_UNAUTHORIZED" or "UNAUTHORIZED" or "ERR_USER_NOT_FOUND" => ProtocolConstants.CodeUnauthorized,
+        _ => ProtocolConstants.CodeSystemError
+    };
 }
