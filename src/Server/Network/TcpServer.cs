@@ -173,7 +173,7 @@ internal sealed class TcpServer
                 ? "server dừng"
                 : $"im lặng quá {_cauHinh.ThoiGianImLang.TotalSeconds:0} giây";
         }
-        catch (ThongDiepQuaDaiException)
+        catch (InvalidDataException)
         {
             lyDo = "gửi thông điệp quá 64 KiB, Server đóng kết nối";
         }

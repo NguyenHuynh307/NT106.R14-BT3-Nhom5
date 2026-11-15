@@ -40,6 +40,8 @@ internal static class Program
             });
         }
 
+        // \u0110I\u1EC2M N\u1ED0I NGHI\u1EC6P V\u1EE4: nh\u1EADn RequestRouter l\u00E0m b\u1ED9 x\u1EED l\u00FD l\u1EC7nh m\u1EB7c \u0111\u1ECBnh.
+        // C\u00E1c handler nghi\u1EC7p v\u1EE5 th\u1EADt (DANGKY, DANGNHAP, LAYTHONGTIN) s\u1EBD \u0111\u01B0\u1EE3c truy\u1EC1n v\u00E0o qua delegate khi gh\u00E9p.
         IMessageProcessor boXuLy = new RequestRouter();
 
         var server = new TcpServer(boXuLy, cauHinh);
