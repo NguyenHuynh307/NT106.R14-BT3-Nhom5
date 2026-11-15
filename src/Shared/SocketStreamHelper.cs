@@ -1,4 +1,4 @@
-﻿namespace Shared
+namespace Shared
 {
     public static class SocketStreamHelper
     {
@@ -64,10 +64,16 @@
                 buffer.Add(b);
             }
 
-            // Chấp nhận kết thúc CRLF (ví dụ telnet): bỏ đúng 1 CR ở cuối, không đụng CR ở giữa.
+            // Chấp nhận kết thúc CRLF (ví dụ telnet): bỏ đúng 1 CR ở cuối.
             if (buffer.Count > 0 && buffer[^1] == (byte)'\r')
             {
                 buffer.RemoveAt(buffer.Count - 1);
+            }
+
+            // Giao thức cấm CR/LF nằm giữa nội dung thông điệp.
+            if (buffer.Contains((byte)'\r'))
+            {
+                throw new InvalidDataException("Nội dung thông điệp không được chứa ký tự CR ở giữa.");
             }
 
             return ProtocolConstants.MessageEncoding.GetString(buffer.ToArray());

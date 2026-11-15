@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Shared;
 
 Console.OutputEncoding = Encoding.UTF8;
@@ -118,6 +118,14 @@ async Task<Exception?> BatLoi(Func<Task> viec)
     ms.Position = 0;
     var r = await SocketStreamHelper.ReceiveLineAsync(ms);
     Kiem($"T12 gửi đúng {max} byte rồi nhận lại nguyên vẹn", r == goc);
+}
+
+// T13: nhận thông điệp có CR nằm giữa nội dung bị từ chối
+{
+    var ex = await BatLoi(() => SocketStreamHelper.ReceiveLineAsync(new MemoryStream(enc.GetBytes("a\rb\n"))));
+    Kiem("T13 nhận thông điệp chứa CR ở giữa bị từ chối bằng InvalidDataException",
+        ex is InvalidDataException,
+        $"(nhận: {ex?.GetType().Name ?? "không có lỗi"})");
 }
 
 Console.WriteLine();
