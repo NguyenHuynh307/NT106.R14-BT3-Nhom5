@@ -70,12 +70,14 @@ internal static class Program
         );
 
         var server = new TcpServer(router, cauHinh);
+        var udpDiscovery = new UdpDiscoveryServer(cauHinh.Cong);
         Task chay;
         try { chay = server.StartAsync(dung.Token); }
         catch (SocketException ex) { ServerLog.Ghi("LOI", $"Không mở được cổng {cauHinh.Cong} ({ex.SocketErrorCode})."); return 1; }
 
         ServerLog.Ghi("SERVER", "Nhấn Enter hoặc Ctrl+C để dừng Server.");
-        await chay;
+        Task chayUdp = udpDiscovery.StartAsync(dung.Token);
+        await Task.WhenAll(chay, chayUdp);
         return 0;
     }
 }
