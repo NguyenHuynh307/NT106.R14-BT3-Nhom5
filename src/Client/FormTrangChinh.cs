@@ -10,6 +10,9 @@ public partial class FormTrangChinh : Form
     private readonly string _fullName;
     private readonly string _birthday;
     private bool _dangDangXuat;
+    private bool _dangTai;
+    private readonly DateTime _thoiDiemDangNhap = DateTime.Now;
+    private bool _daTaiLanDau;
 
     public FormTrangChinh() : this(string.Empty, string.Empty, string.Empty, string.Empty)
     {
@@ -24,6 +27,7 @@ public partial class FormTrangChinh : Form
         _birthday = birthday;
 
         Load += FormTrangChinh_Load;
+        Activated += FormTrangChinh_Activated;
     }
 
     private async void FormTrangChinh_Load(object? sender, EventArgs e)
@@ -31,14 +35,32 @@ public partial class FormTrangChinh : Form
         TcpClientHelper.Instance.OnDisconnected += OnServerDisconnected;
         HienThiThongTin(_username, _email, _fullName, _birthday);
 
-        if (!TcpClientHelper.Instance.IsConnected)
+        await TaiThongTinAsync();
+        _daTaiLanDau = true;
+    }
+
+    // Mỗi lần cửa sổ được kích hoạt lại thì gửi lại LAYTHONGTIN kèm token: token hết hạn thì quay về form Đăng nhập.
+    private async void FormTrangChinh_Activated(object? sender, EventArgs e)
+    {
+        if (_daTaiLanDau)
+        {
+            await TaiThongTinAsync();
+        }
+    }
+
+    private async Task TaiThongTinAsync()
+    {
+        if (_dangTai || _dangDangXuat || !TcpClientHelper.Instance.IsConnected)
         {
             return;
         }
 
+        _dangTai = true;
         try
         {
-            string payload = new RequestMessage(ProtocolConstants.CmdGetInfo).Serialize();
+            string payload = new RequestMessage(
+                ProtocolConstants.CmdGetInfo,
+                TcpClientHelper.Instance.SessionToken ?? string.Empty).Serialize();
             ResponseMessage response = await InputValidator.GuiVaChoPhanHoiAsync(payload);
 
             if (IsDisposed)
@@ -54,6 +76,10 @@ public partial class FormTrangChinh : Form
                 string bd = response.Data.Length > 3 ? response.Data[3] : _birthday;
                 HienThiThongTin(u, em, fn, bd);
             }
+            else if (response.StatusCode == ProtocolConstants.CodeTokenExpired)
+            {
+                QuayVeDangNhap("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+            }
             else if (response.StatusCode == ProtocolConstants.CodeUnauthorized)
             {
                 QuayVeDangNhap("Phiên đăng nhập chưa hợp lệ. Vui lòng đăng nhập lại.");
@@ -62,6 +88,10 @@ public partial class FormTrangChinh : Form
         catch (Exception ex) when (ex is SocketException or IOException or InvalidOperationException or TimeoutException)
         {
             // Giữ thông tin đã nhận từ bước đăng nhập nếu tải lại gặp lỗi tạm thời
+        }
+        finally
+        {
+            _dangTai = false;
         }
     }
 
@@ -73,7 +103,7 @@ public partial class FormTrangChinh : Form
         lblLastLoginTitle.Text = string.IsNullOrWhiteSpace(birthday)
             ? "Đăng nhập lúc:"
             : $"Ngày sinh: {birthday}  |  Đăng nhập lúc:";
-        lblLastLoginTime.Text = DateTime.Now.ToString("dd/MM/yyyy  HH:mm:ss");
+        lblLastLoginTime.Text = _thoiDiemDangNhap.ToString("dd/MM/yyyy  HH:mm:ss");
     }
 
     private void OnServerDisconnected()
@@ -126,7 +156,9 @@ public partial class FormTrangChinh : Form
         {
             if (TcpClientHelper.Instance.IsConnected)
             {
-                string payload = new RequestMessage(ProtocolConstants.CmdLogout).Serialize();
+                string payload = new RequestMessage(
+                    ProtocolConstants.CmdLogout,
+                    TcpClientHelper.Instance.SessionToken ?? string.Empty).Serialize();
                 await InputValidator.GuiVaChoPhanHoiAsync(payload, 3000);
             }
         }
@@ -165,7 +197,9 @@ public partial class FormTrangChinh : Form
         {
             if (TcpClientHelper.Instance.IsConnected)
             {
-                string payload = new RequestMessage(ProtocolConstants.CmdLogout).Serialize();
+                string payload = new RequestMessage(
+                    ProtocolConstants.CmdLogout,
+                    TcpClientHelper.Instance.SessionToken ?? string.Empty).Serialize();
                 _ = TcpClientHelper.Instance.SendAsync(payload);
             }
         }

@@ -1,4 +1,5 @@
 ﻿using NT106.BT3.Server.Logging;
+using NT106.BT3.Server.Security;
 using Shared;
 
 namespace NT106.BT3.Server.Network;
@@ -19,11 +20,17 @@ internal sealed class RequestRouter : IMessageProcessor
     private readonly CommandHandlerAsync _xuLyDangNhap;
     private readonly CommandHandlerAsync _xuLyLayThongTin;
 
+    // Có tokenManager: LAYTHONGTIN và DANGXUAT phải kèm đúng 1 tham số là token (III.10).
+    // Không có (chạy thử/echo độc lập): hai lệnh này không nhận tham số như trước.
+    private readonly SessionTokenManager? _tokenManager;
+
     public RequestRouter(
         CommandHandlerAsync? xuLyDangKy = null,
         CommandHandlerAsync? xuLyDangNhap = null,
-        CommandHandlerAsync? xuLyLayThongTin = null)
+        CommandHandlerAsync? xuLyLayThongTin = null,
+        SessionTokenManager? tokenManager = null)
     {
+        _tokenManager = tokenManager;
         _xuLyDangKy = xuLyDangKy ?? DangKyMacDinhAsync;
         _xuLyDangNhap = xuLyDangNhap ?? DangNhapGiaLapAsync;
         _xuLyLayThongTin = xuLyLayThongTin ?? LayThongTinGiaLapAsync;
@@ -58,7 +65,7 @@ internal sealed class RequestRouter : IMessageProcessor
 
         try
         {
-            ResponseMessage? loiThamSo = KiemTraSoThamSo(request);
+            ResponseMessage? loiThamSo = KiemTraSoThamSo(request, _tokenManager is not null);
             if (loiThamSo is not null)
             {
                 ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gửi sai số tham số cho lệnh {request.Command} ({request.Args.Length} tham số).");
@@ -70,7 +77,7 @@ internal sealed class RequestRouter : IMessageProcessor
                 ProtocolConstants.CmdRegister => await _xuLyDangKy(request, phien, token),
                 ProtocolConstants.CmdLogin => await _xuLyDangNhap(request, phien, token),
                 ProtocolConstants.CmdGetInfo => await XuLyLayThongTinAsync(request, phien, token),
-                ProtocolConstants.CmdLogout => XuLyDangXuat(phien),
+                ProtocolConstants.CmdLogout => XuLyDangXuat(request, phien),
                 _ => XuLyLenhLa(phien, request.Command)
             };
 
@@ -95,6 +102,30 @@ internal sealed class RequestRouter : IMessageProcessor
         ClientSession phien,
         CancellationToken token)
     {
+        if (_tokenManager is not null)
+        {
+            KetQuaKiemTraToken kq = _tokenManager.KiemTraVaLayUser(request.Args[0]);
+            if (kq.TrangThai == TrangThaiToken.HetHan)
+            {
+                phien.TenDangNhap = null;
+                phien.SessionToken = null;
+                ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gửi token đã hết hạn.");
+                return new ResponseMessage(
+                    ProtocolConstants.CodeTokenExpired,
+                    "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+            }
+
+            if (kq.TrangThai != TrangThaiToken.HopLe ||
+                string.IsNullOrWhiteSpace(phien.TenDangNhap) ||
+                !string.Equals(kq.Username, phien.TenDangNhap, StringComparison.Ordinal))
+            {
+                ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gửi token không hợp lệ.");
+                return new ResponseMessage(
+                    ProtocolConstants.CodeUnauthorized,
+                    "Bạn chưa đăng nhập. Vui lòng đăng nhập trước.");
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(phien.TenDangNhap))
         {
             ServerLog.Ghi("ROUTER", $"Phiên [{phien.Id}] gọi {ProtocolConstants.CmdGetInfo} khi chưa đăng nhập.");
@@ -111,8 +142,16 @@ internal sealed class RequestRouter : IMessageProcessor
     /// Đánh dấu YeuCauDong = true để TcpServer gửi phản hồi xong sẽ đóng kết nối
     /// và gỡ phiên khỏi ConcurrentDictionary trong khối finally.
     /// </summary>
-    private static ResponseMessage XuLyDangXuat(ClientSession phien)
+    private ResponseMessage XuLyDangXuat(RequestMessage request, ClientSession phien)
     {
+        // Đăng xuất luôn được chấp nhận (kể cả token đã hết hạn): thu hồi token rồi đóng kết nối.
+        if (_tokenManager is not null)
+        {
+            _tokenManager.ThuHoiToken(request.Args.Length > 0 ? request.Args[0] : null);
+            _tokenManager.ThuHoiToken(phien.SessionToken);
+        }
+        phien.SessionToken = null;
+
         string nhanHienThi = string.IsNullOrWhiteSpace(phien.TenDangNhap)
             ? $"khách ({phien.DiaChiClient})"
             : $"tài khoản '{phien.TenDangNhap}'";
@@ -125,8 +164,9 @@ internal sealed class RequestRouter : IMessageProcessor
         return new ResponseMessage(ProtocolConstants.CodeSuccess, "Đăng xuất thành công.");
     }
 
-    private static ResponseMessage? KiemTraSoThamSo(RequestMessage request)
+    private static ResponseMessage? KiemTraSoThamSo(RequestMessage request, bool coToken)
     {
+        int soThamSoPhien = coToken ? 1 : 0;
         return request.Command switch
         {
             ProtocolConstants.CmdRegister when request.Args.Length != 5 =>
@@ -137,14 +177,18 @@ internal sealed class RequestRouter : IMessageProcessor
                 new ResponseMessage(
                     ProtocolConstants.CodeInvalidFormat,
                     "Yêu cầu đăng nhập phải có đúng 2 tham số (Username, Password)."),
-            ProtocolConstants.CmdGetInfo when request.Args.Length != 0 =>
+            ProtocolConstants.CmdGetInfo when request.Args.Length != soThamSoPhien =>
                 new ResponseMessage(
                     ProtocolConstants.CodeInvalidFormat,
-                    "Lệnh LAYTHONGTIN không nhận tham số."),
-            ProtocolConstants.CmdLogout when request.Args.Length != 0 =>
+                    coToken
+                        ? "Lệnh LAYTHONGTIN phải có đúng 1 tham số (Token)."
+                        : "Lệnh LAYTHONGTIN không nhận tham số."),
+            ProtocolConstants.CmdLogout when request.Args.Length != soThamSoPhien =>
                 new ResponseMessage(
                     ProtocolConstants.CodeInvalidFormat,
-                    "Lệnh DANGXUAT không nhận tham số."),
+                    coToken
+                        ? "Lệnh DANGXUAT phải có đúng 1 tham số (Token)."
+                        : "Lệnh DANGXUAT không nhận tham số."),
             _ => null
         };
     }

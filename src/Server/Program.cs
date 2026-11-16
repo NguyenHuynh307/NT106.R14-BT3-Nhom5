@@ -17,7 +17,8 @@ internal static class Program
         "SUCCESS" or "OK" => ProtocolConstants.CodeSuccess,
         "ERR_USERNAME_EXISTS" => ProtocolConstants.CodeUserExists,
         "INVALID_CREDENTIALS" => ProtocolConstants.CodeAuthFailed,
-        "ERR_UNAUTHORIZED" or "UNAUTHORIZED" or "TOKEN_EXPIRED" => ProtocolConstants.CodeUnauthorized,
+        "ERR_UNAUTHORIZED" or "UNAUTHORIZED" => ProtocolConstants.CodeUnauthorized,
+        "TOKEN_EXPIRED" => ProtocolConstants.CodeTokenExpired,
         "ERR_INVALID_INPUT" or "BAD_REQUEST" or "ERR_INVALID_FORMAT" => ProtocolConstants.CodeInvalidFormat,
         _ => ProtocolConstants.CodeSystemError
     };
@@ -36,7 +37,10 @@ internal static class Program
         var dbHelper = new NT106.BT3.Server.Data.DatabaseHelper();
         IUserRepository userRepo = new NT106.BT3.Server.Data.UserRepository(dbHelper);
         IPasswordHasher hasher = new NT106.BT3.Server.Security.MatKhau();
-        var tokenManager = new SessionTokenManager(TimeSpan.FromMinutes(30));
+        // Thời hạn token đọc từ biến môi trường NT106_TOKEN_SECONDS (giây); mặc định 1800 giây (30 phút).
+        int tokenGiay = int.TryParse(Environment.GetEnvironmentVariable("NT106_TOKEN_SECONDS"), out int g) && g > 0 ? g : 1800;
+        var tokenManager = new SessionTokenManager(TimeSpan.FromSeconds(tokenGiay));
+        ServerLog.Ghi("SERVER", $"Token phiên có hạn {tokenGiay} giây.");
         
         var dangKyHandler = new DangKyHandler(userRepo, hasher);
         var layThongTinHandler = new LayThongTinHandler(userRepo);
@@ -61,7 +65,8 @@ internal static class Program
                     return new ResponseMessage(MapCode(r.Code), r.Message, data.Username, data.Email ?? "", data.FullName, data.Birthday?.ToString("yyyy-MM-dd") ?? ""); 
                 }
                 return new ResponseMessage(MapCode(r.Code), r.Message);
-            }
+            },
+            tokenManager
         );
 
         var server = new TcpServer(router, cauHinh);
