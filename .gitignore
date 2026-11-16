@@ -9,3 +9,13 @@ packages/
 # Nhat ky Server (bang chung nop bai dat thu cong vao docs/)
 logs/
 *.log
+
+# Chi dua .md/.txt len repo; Word/anh de nop kem bao cao
+docs/*.docx
+docs/*.doc
+docs/*.pdf
+docs/*.png
+docs/*.jpg
+docs/*.jpeg
+docs/*.gif
+docs/*.zip

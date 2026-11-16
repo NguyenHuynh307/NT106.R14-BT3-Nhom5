@@ -258,6 +258,7 @@ public partial class FormDangNhap : Form
                 string resFullName = response.Data.Length > 2 ? response.Data[2] : string.Empty;
                 string resBirthday = response.Data.Length > 3 ? response.Data[3] : string.Empty;
 
+                TcpClientHelper.Instance.SessionToken = response.Data.Length > 4 ? response.Data[4] : null;
                 txtPassword.Clear();
                 var mainForm = new FormTrangChinh(resUser, resEmail, resFullName, resBirthday);
                 Hide();

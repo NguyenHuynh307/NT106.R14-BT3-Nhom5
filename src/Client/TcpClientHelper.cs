@@ -27,6 +27,9 @@ namespace NT106.BT3.Client
         public event Action<string>? OnMessageReceived;
         public event Action? OnDisconnected;
 
+        /// <summary>Token phiên do Server cấp khi DANGNHAP thành công; gửi kèm LAYTHONGTIN và DANGXUAT. Xóa khi ngắt kết nối.</summary>
+        public string? SessionToken { get; set; }
+
         public bool IsConnected => _client?.Connected == true && Volatile.Read(ref _disconnectedFlag) == 0;
 
         private TcpClientHelper() { }
@@ -175,6 +178,7 @@ namespace NT106.BT3.Client
             _cts = null;
             _stream = null;
             _client = null;
+            SessionToken = null;
 
             OnDisconnected?.Invoke();
         }

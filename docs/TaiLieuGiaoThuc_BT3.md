@@ -23,9 +23,9 @@
 | Lệnh | Tham số (Request) | Phản hồi thành công | Phản hồi lỗi |
 | :--- | :--- | :--- | :--- |
 | `DANGKY` | `Username\|Password\|Email\|FullName\|Birthday` (đúng 5 tham số) | `0\|MESSAGE` | `1` thiếu/sai dữ liệu; `2` tài khoản đã tồn tại; `5` lỗi hệ thống |
-| `DANGNHAP` | `Username\|Password` | `0\|MESSAGE\|Username\|Email\|FullName\|Birthday` | `1` thiếu tham số; `3` sai tên hoặc sai mật khẩu (cùng một thông báo); `5` lỗi hệ thống |
-| `LAYTHONGTIN` | không có | `0\|MESSAGE\|Username\|Email\|FullName\|Birthday` | `4` chưa đăng nhập; `5` lỗi hệ thống |
-| `DANGXUAT` | không có | `0\|MESSAGE`, sau đó Server đóng kết nối và gỡ phiên | — |
+| `DANGNHAP` | `Username\|Password` | `0\|MESSAGE\|Username\|Email\|FullName\|Birthday\|Token` | `1` thiếu tham số; `3` sai tên hoặc sai mật khẩu (cùng một thông báo); `5` lỗi hệ thống |
+| `LAYTHONGTIN` | `Token` (đúng 1 tham số) | `0\|MESSAGE\|Username\|Email\|FullName\|Birthday` | `1` thiếu token; `4` chưa đăng nhập/token sai; `6` token hết hạn; `5` lỗi hệ thống |
+| `DANGXUAT` | `Token` (đúng 1 tham số) | `0\|MESSAGE`, sau đó Server đóng kết nối, thu hồi token và gỡ phiên | `1` thiếu token |
 
 Ghi chú dữ liệu:
 - `Birthday`: định dạng `yyyy-MM-dd` (ví dụ `2000-01-01`); không có thì để chuỗi rỗng.
@@ -43,6 +43,12 @@ Ghi chú dữ liệu:
 | `3` | `CodeAuthFailed` | Sai tài khoản hoặc mật khẩu (`DANGNHAP`) |
 | `4` | `CodeUnauthorized` | Chưa đăng nhập hoặc phiên không hợp lệ |
 | `5` | `CodeSystemError` | Lỗi hệ thống / Lỗi xử lý nội bộ Server |
+| `6` | `CodeTokenExpired` | Token phiên đã hết hạn; Client quay về form Đăng nhập |
+
+### 4.1. Token phiên (tính năng nâng cao)
+- `DANGNHAP` thành công: Server sinh token ngẫu nhiên 256 bit (`RandomNumberGenerator`, mã hóa base64url, không chứa `|`), kèm thời điểm hết hạn (mặc định 30 phút, đổi bằng biến môi trường `NT106_TOKEN_SECONDS`), lưu trong bộ nhớ Server và trả về ở trường cuối của phản hồi.
+- Mỗi yêu cầu sau đăng nhập (`LAYTHONGTIN`, `DANGXUAT`) Client gửi kèm token; Server chỉ phục vụ khi token còn hạn. Token hết hạn: trả mã `6`; token sai hoặc chưa đăng nhập: trả mã `4`.
+- Token không được ghi vào nhật ký (log).
 
 ### 5. Dò tìm Server qua UDP (Tính năng nâng cao)
 - Server lắng nghe gói UDP tại cổng 5001.
